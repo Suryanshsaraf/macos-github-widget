@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 public struct ContentView: View {
     @StateObject private var store = WidgetSettingsStore.shared
@@ -137,11 +140,7 @@ public struct ContentView: View {
                     .buttonStyle(.plain)
                     .disabled(usernameInput.isEmpty || isTestingConnection)
                     
-                    Button(action: {
-                        store.saveSettings(username: usernameInput, token: tokenInput, theme: selectedTheme)
-                        statusMessage = "Settings saved! Widget refreshed."
-                        isErrorStatus = false
-                    }) {
+                    Button(action: saveAndApply) {
                         Text("Save & Apply")
                             .fontWeight(.semibold)
                             .foregroundColor(.black)
@@ -215,6 +214,33 @@ public struct ContentView: View {
             usernameInput = store.username
             tokenInput = store.token
             selectedTheme = store.theme
+        }
+    }
+    
+    private func saveAndApply() {
+        store.saveSettings(username: usernameInput, token: tokenInput, theme: selectedTheme)
+        statusMessage = "Settings saved! Syncing widget..."
+        isErrorStatus = false
+        
+        Task {
+            do {
+                let tokenOpt = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : tokenInput
+                let profile = try await networkService.fetchUserProfile(username: usernameInput, token: tokenOpt)
+                await MainActor.run {
+                    store.cacheProfile(profile)
+                    statusMessage = "Synced & applied to widget!"
+                    isErrorStatus = false
+                    #if canImport(WidgetKit)
+                    WidgetCenter.shared.reloadTimelines(ofKind: "GitHubTahoeWidget")
+                    WidgetCenter.shared.reloadAllTimelines()
+                    #endif
+                }
+            } catch {
+                await MainActor.run {
+                    statusMessage = "Settings applied!"
+                    isErrorStatus = false
+                }
+            }
         }
     }
     

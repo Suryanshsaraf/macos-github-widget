@@ -12,9 +12,15 @@ public enum NetworkError: Error {
 }
 
 public class GitHubNetworkService {
-    public init() {}
-    
     private let userAgent = "github-tahoe-widget/1.0"
+    private let session: URLSession
+    
+    public init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 8.0
+        configuration.timeoutIntervalForResource = 12.0
+        self.session = URLSession(configuration: configuration)
+    }
     
     // Fetch profile data based on token availability
     public func fetchUserProfile(username: String, token: String?) async throws -> GitHubUserProfile {
@@ -102,7 +108,7 @@ public class GitHubNetworkService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = postData
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.invalidResponse
@@ -211,41 +217,38 @@ public class GitHubNetworkService {
     
     // --- PUBLIC MODE (REST + HTML Scraping) ---
     private func fetchPublicProfile(username: String) async throws -> GitHubUserProfile {
-        // 1. Fetch REST Profile
-        guard let profileUrl = URL(string: "https://api.github.com/users/\(username)") else {
-            throw NetworkError.invalidURL
+        var name = username
+        var avatarUrl = "https://github.com/\(username).png"
+        var bio: String? = nil
+        var followers = 0
+        var stars = 0
+        
+        // 1. Fetch REST Profile (best effort, graceful fallback on rate limits)
+        if let profileUrl = URL(string: "https://api.github.com/users/\(username)") {
+            var profileRequest = URLRequest(url: profileUrl)
+            profileRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (profileData, profileResponse) = try? await session.data(for: profileRequest),
+               let profileHttpResponse = profileResponse as? HTTPURLResponse, profileHttpResponse.statusCode == 200,
+               let profileJson = try? JSONSerialization.jsonObject(with: profileData) as? [String: Any] {
+                name = profileJson["name"] as? String ?? username
+                avatarUrl = profileJson["avatar_url"] as? String ?? avatarUrl
+                bio = profileJson["bio"] as? String
+                followers = profileJson["followers"] as? Int ?? 0
+            }
         }
         
-        var profileRequest = URLRequest(url: profileUrl)
-        profileRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        
-        let (profileData, profileResponse) = try await URLSession.shared.data(for: profileRequest)
-        guard let profileHttpResponse = profileResponse as? HTTPURLResponse, profileHttpResponse.statusCode == 200 else {
-            throw NetworkError.invalidResponse
+        // 2. Fetch Stars count from Repos (best effort)
+        if let reposUrl = URL(string: "https://api.github.com/users/\(username)/repos?per_page=100") {
+            var reposRequest = URLRequest(url: reposUrl)
+            reposRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (reposData, reposResponse) = try? await session.data(for: reposRequest),
+               let reposHttpResponse = reposResponse as? HTTPURLResponse, reposHttpResponse.statusCode == 200,
+               let reposJson = try? JSONSerialization.jsonObject(with: reposData) as? [[String: Any]] {
+                stars = reposJson.reduce(0) { $0 + ($1["stargazers_count"] as? Int ?? 0) }
+            }
         }
         
-        guard let profileJson = try? JSONSerialization.jsonObject(with: profileData) as? [String: Any] else {
-            throw NetworkError.parsingError("Failed to parse profile JSON")
-        }
-        
-        let name = profileJson["name"] as? String ?? username
-        let avatarUrl = profileJson["avatar_url"] as? String ?? ""
-        let bio = profileJson["bio"] as? String
-        let followers = profileJson["followers"] as? Int ?? 0
-        
-        // 2. Fetch Stars count from Repos
-        guard let reposUrl = URL(string: "https://api.github.com/users/\(username)/repos?per_page=100") else {
-            throw NetworkError.invalidURL
-        }
-        
-        var reposRequest = URLRequest(url: reposUrl)
-        reposRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        
-        let (reposData, _) = try await URLSession.shared.data(for: reposRequest)
-        let reposJson = (try? JSONSerialization.jsonObject(with: reposData) as? [[String: Any]]) ?? []
-        let stars = reposJson.reduce(0) { $0 + ($1["stargazers_count"] as? Int ?? 0) }
-        
-        // 3. Scrape Contributions HTML
+        // 3. Scrape Contributions HTML (core requirement)
         guard let contribsUrl = URL(string: "https://github.com/users/\(username)/contributions") else {
             throw NetworkError.invalidURL
         }
@@ -253,7 +256,7 @@ public class GitHubNetworkService {
         var contribsRequest = URLRequest(url: contribsUrl)
         contribsRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         
-        let (contribsData, _) = try await URLSession.shared.data(for: contribsRequest)
+        let (contribsData, _) = try await session.data(for: contribsRequest)
         guard let html = String(data: contribsData, encoding: .utf8) else {
             throw NetworkError.parsingError("Failed to encode HTML contributions")
         }

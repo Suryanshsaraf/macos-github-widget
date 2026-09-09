@@ -293,7 +293,13 @@ public struct TahoeWidgetEntryView : View {
         return ""
     }
     
-    private func getMonthPositions(recentDays: [GitHubContributionDay]) -> [(name: String, offset: CGFloat)] {
+    struct MonthLabelItem: Identifiable {
+        let id: Int
+        let name: String
+        let offset: CGFloat
+    }
+
+    private func getMonthPositions(recentDays: [GitHubContributionDay]) -> [MonthLabelItem] {
         var positions: [(name: String, offset: CGFloat)] = []
         var lastMonth = ""
         let colWidth: CGFloat = 5.2 // cellSize (4.0) + cellSpacing (1.2)
@@ -311,11 +317,11 @@ public struct TahoeWidgetEntryView : View {
         }
         
         // Prevent overlapping
-        var filtered: [(name: String, offset: CGFloat)] = []
+        var filtered: [MonthLabelItem] = []
         var lastOffset: CGFloat = -100
-        for pos in positions {
+        for (idx, pos) in positions.enumerated() {
             if pos.offset - lastOffset > 18 {
-                filtered.append(pos)
+                filtered.append(MonthLabelItem(id: idx, name: pos.name, offset: pos.offset))
                 lastOffset = pos.offset
             }
         }
@@ -326,11 +332,11 @@ public struct TahoeWidgetEntryView : View {
         let positions = getMonthPositions(recentDays: recentDays)
         return ZStack(alignment: .leading) {
             Color.clear.frame(height: 10)
-            ForEach(0..<positions.count, id: \.self) { i in
-                Text(positions[i].name)
+            ForEach(positions) { pos in
+                Text(pos.name)
                     .font(.system(size: 8))
                     .foregroundColor(Color(red: 125/255, green: 133/255, blue: 144/255))
-                    .offset(x: positions[i].offset)
+                    .offset(x: pos.offset)
             }
         }
     }
