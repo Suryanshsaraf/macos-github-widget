@@ -65,3 +65,11 @@ Because widgets share data with a host configurator app, macOS requires them to 
 *   `GitHubTahoeApp/` - Host settings app to save usernames, PATs, and colors.
 *   `GitHubTahoeWidget/` - The extension that renders the widget views and manages background timeline intervals.
 *   `GitHubTahoeApp.entitlements` / `GitHubTahoeWidget.entitlements` - System capability configurations enabling sandbox network access and shared App Group containers.
+
+---
+
+## 👥 Contributors & Acknowledgments
+
+* **[Suryansh Saraf](https://github.com/Suryanshsaraf)** — Creator & Developer
+* **Claude** (`noreply@anthropic.com`) — AI Pair Programmer (WidgetKit lifecycle debugging, App Group IPC cache coordination, and architecture fixes)
+
